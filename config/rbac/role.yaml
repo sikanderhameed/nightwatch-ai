@@ -1,0 +1,48 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments/scale
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - finops.sikander.io
+  resources:
+  - nightwatchscalers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - finops.sikander.io
+  resources:
+  - nightwatchscalers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - finops.sikander.io
+  resources:
+  - nightwatchscalers/status
+  verbs:
+  - get
+  - patch
+  - update
