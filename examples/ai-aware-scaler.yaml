@@ -1,0 +1,11 @@
+apiVersion: finops.sikander.io/v1alpha1
+kind: NightwatchScaler
+metadata:
+  name: ai-aware-scaler
+spec:
+  targetDeployment: test-app
+  sleepSchedule: "10:00-12:00"  # Currently in sleep window (11:51 UTC)
+  queueDepthThreshold: 5
+  vllmMetricsURL: "http://mock-vllm.default.svc.cluster.local:8000/metrics"
+  minReplicas: 0
+  maxReplicas: 10

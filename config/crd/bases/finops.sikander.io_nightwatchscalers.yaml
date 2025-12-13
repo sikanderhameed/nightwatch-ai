@@ -24,9 +24,12 @@ spec:
     - jsonPath: .status.desiredReplicas
       name: Desired
       type: integer
-    - jsonPath: .status.lastCPUUtilization
-      name: CPU%
+    - jsonPath: .status.lastQueueDepth
+      name: Queue
       type: integer
+    - jsonPath: .status.sleepMode
+      name: Sleep
+      type: boolean
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -77,13 +80,32 @@ spec:
                 format: int32
                 minimum: 0
                 type: integer
+              queueDepthThreshold:
+                description: |-
+                  QueueDepthThreshold is the maximum acceptable queue depth
+                  If queue depth exceeds this, scale up immediately (overrides sleep mode)
+                format: int32
+                minimum: 0
+                type: integer
               schedule:
                 description: Schedule is a cron expression for time-based scaling
                   (e.g., "0 20 * * *" for 8pm daily)
                 type: string
+              sleepSchedule:
+                description: |-
+                  SleepSchedule defines when to scale down to save costs (FinOps)
+                  Format: "HH:MM-HH:MM" (e.g., "20:00-08:00" means sleep from 8 PM to 8 AM)
+                  During sleep window, deployment scales to 0 and original replica count is saved
+                pattern: ^([0-1][0-9]|2[0-3]):[0-5][0-9]-([0-1][0-9]|2[0-3]):[0-5][0-9]$
+                type: string
               targetDeployment:
                 description: TargetDeployment is the name of the Deployment to scale
                 minLength: 1
+                type: string
+              vllmMetricsURL:
+                description: |-
+                  VLLMMetricsURL is the URL to fetch vLLM metrics from
+                  Example: "http://mock-vllm:8000/metrics"
                 type: string
             required:
             - targetDeployment
@@ -91,6 +113,11 @@ spec:
           status:
             description: status defines the observed state of NightwatchScaler
             properties:
+              circuitBreakerTripped:
+                description: |-
+                  CircuitBreakerTripped indicates if the circuit breaker is active
+                  When true, operator scales to maxReplicas for safety
+                type: boolean
               conditions:
                 description: conditions represent the current state of the NightwatchScaler
                   resource.
@@ -166,10 +193,30 @@ spec:
                   percentage
                 format: int32
                 type: integer
+              lastKnownQueueDepth:
+                description: |-
+                  LastKnownQueueDepth is the last successfully fetched queue depth
+                  Used for graceful degradation when metrics service is unavailable
+                format: int32
+                type: integer
+              lastQueueDepth:
+                description: LastQueueDepth is the last observed vLLM queue depth
+                format: int32
+                type: integer
               lastScaleTime:
                 description: LastScaleTime is the last time the deployment was scaled
                 format: date-time
                 type: string
+              metricsFailureCount:
+                description: |-
+                  MetricsFailureCount tracks consecutive metrics fetch failures
+                  Circuit breaker trips at 3 failures
+                format: int32
+                type: integer
+              sleepMode:
+                description: SleepMode indicates if the deployment is currently in
+                  sleep mode
+                type: boolean
             type: object
         required:
         - spec

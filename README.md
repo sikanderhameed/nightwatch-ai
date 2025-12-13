@@ -1,135 +1,228 @@
-# nightwatch-ai
-// TODO(user): Add simple overview of use/purpose
+# Nightwatch AI Operator
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+**AI-aware FinOps controller for Kubernetes**
 
-## Getting Started
+[![Go Version](https://img.shields.io/badge/Go-1.24-blue.svg)](https://golang.org)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.28+-326CE5.svg)](https://kubernetes.io)
+[![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 
-### Prerequisites
-- go version v1.24.6+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+> A custom Kubernetes operator that combines business metrics with cost optimization through intelligent, priority-based autoscaling with production-grade fault tolerance.
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+---
 
-```sh
-make docker-build docker-push IMG=<some-registry>/nightwatch-ai:tag
+## 🎯 The Business Problem
+
+**Challenge:** Standard autoscalers (HPA, KEDA) cannot combine business metrics with cost policies in a single decision loop.
+
+**Impact:** Organizations must choose between:
+- ❌ User experience (scale based on demand)
+- ❌ Cost optimization (scale down during off-hours)
+
+**Result:** Either degraded performance or wasted compute costs.
+
+---
+
+## 💡 The Solution: Intelligent Multi-Signal Autoscaling
+
+Nightwatch AI is a **custom Kubernetes operator** that implements priority-based scaling:
+
+```
+Priority 1: Queue Depth (User Experience)
+  ↓ If AI workload queue > threshold → Scale up immediately
+  
+Priority 2: Sleep Schedule (Cost Optimization)
+  ↓ If in off-hours window → Scale to 0
+  
+Priority 3: Circuit Breaker (Resilience)
+  ↓ If metrics unavailable → Fail-safe to maxReplicas
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+**This enables AI-aware FinOps** - optimizing costs without sacrificing user experience.
 
-**Install the CRDs into the cluster:**
+---
 
-```sh
-make install
+## 🏗️ Architecture
+
+### System Design
+
+```
+┌──────────────────────────────────────────────────────┐
+│  Nightwatch AI Operator (Custom Controller)          │
+│                                                       │
+│  ┌────────────────────────────────────────────────┐ │
+│  │  Priority-Based Decision Engine                │ │
+│  │                                                 │ │
+│  │  1. Fetch vLLM Queue Depth (HTTP + Prometheus) │ │
+│  │  2. Check Circuit Breaker Status               │ │
+│  │  3. Evaluate Sleep Schedule                    │ │
+│  │  4. Calculate Desired Replicas                 │ │
+│  │  5. Update Deployment + Status                 │ │
+│  └────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────┘
+           ↓                           ↓
+    ┌──────────┐              ┌─────────────────┐
+    │  vLLM    │              │  Kubernetes     │
+    │  Metrics │              │  Deployments    │
+    └──────────┘              └─────────────────┘
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+### Custom Resource Definition (CRD)
 
-```sh
-make deploy IMG=<some-registry>/nightwatch-ai:tag
+```yaml
+apiVersion: finops.sikander.io/v1alpha1
+kind: NightwatchScaler
+metadata:
+  name: ai-inference-scaler
+spec:
+  targetDeployment: vllm-inference
+  
+  # Business Metric (Priority 1)
+  queueDepthThreshold: 5
+  vllmMetricsURL: "http://vllm:8000/metrics"
+  
+  # Cost Optimization (Priority 2)
+  sleepSchedule: "20:00-08:00"  # Sleep 8 PM to 8 AM
+  
+  # Constraints
+  minReplicas: 0
+  maxReplicas: 10
 ```
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+---
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
+## 🚀 Key Features
 
-```sh
-kubectl apply -k config/samples/
+### 1. **AI-Aware Autoscaling**
+- Fetches real-time queue depth from vLLM metrics endpoint
+- Scales based on actual business demand, not just CPU/memory
+- Overrides cost policies when user experience is at risk
+
+### 2. **Production-Grade Resilience**
+- **Circuit Breaker Pattern**: 3-tier graceful degradation
+  - Tier 1-2: Use Last Known Good Value (LKGV)
+  - Tier 3: Fail-safe to `maxReplicas` (not down!)
+- **Fail-Safe Design**: Prefers over-provisioning to outages
+- **State Management**: Uses Kubernetes annotations for distributed state
+
+### 3. **Time-Based FinOps**
+- Automatic sleep/wake cycles for cost savings
+- Saves original replica count before sleeping
+- Restores state on wake-up
+- **Business Value**: "Saved $X,000/month by auto-sleeping dev environments"
+
+### 4. **Priority-Based Decision Making**
+```go
+// Queue depth overrides sleep schedule
+if queueDepth > threshold {
+    scale_up()  // User experience first
+} else if in_sleep_window {
+    scale_to_zero()  // Cost optimization second
+}
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
+---
 
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
+## 📊 Technical Highlights
 
-```sh
-kubectl delete -k config/samples/
+### Code Statistics
+
+- **Language**: Go 1.24
+- **Framework**: Kubebuilder v4 / controller-runtime
+- **Lines of Code**: ~500 (controller + CRD)
+- **Docker Images**: 6 versions (v0.1.0 → v0.6.0)
+- **Deployment**: Amazon EKS
+
+---
+
+## 🔬 Proof of Work
+
+### Circuit Breaker in Action
+
+**Scenario**: vLLM metrics service goes down
+
+```
+📊 Queue depth fetched successfully (queueDepth=15)
+⚠️ Failed to fetch queue depth (failureCount=1)
+⚠️ Using last known queue depth (queueDepth=15, LKGV)
+⚠️ Failed to fetch queue depth (failureCount=2)
+⚠️ Using last known queue depth (queueDepth=15, LKGV)
+🚨 CIRCUIT BREAKER TRIPPED - Scaling to maxReplicas (fail-safe)
+✅ Scaled deployment from 0 → 10 replicas (prevented outage!)
 ```
 
-**Delete the APIs(CRDs) from the cluster:**
+### AI-Aware Scaling
 
-```sh
-make uninstall
+**Scenario**: High AI workload demand during sleep window
+
+```
+💤 Sleep mode active (schedule=20:00-08:00)
+📊 Queue depth fetched (queueDepth=15, threshold=5)
+🚨 High queue depth detected, scaling up
+   overridingSleepMode=true
+🔄 Scaling deployment from 0 → 6 replicas
+✅ User experience prioritized over cost savings
 ```
 
-**UnDeploy the controller from the cluster:**
+---
 
-```sh
-make undeploy
+## 🛠️ Technology Stack
+
+**Core:**
+- Go 1.24
+- Kubebuilder v4.10.1
+- controller-runtime
+- client-go
+
+**Infrastructure:**
+- Kubernetes 1.28+
+- AWS EKS
+- Amazon ECR
+- Terraform
+
+**Observability:**
+- Prometheus metrics
+- Kubernetes Events API
+- Structured logging
+
+---
+
+## Compared with KEDA and HPA
+
+**What KEDA/HPA can do:**
+- Scale based on CPU
+- Scale based on queue depth
+- Scale based on schedule
+
+**What they CANNOT do:**
+- Combine multiple signals with priority
+- Override cost policies for user experience
+- Implement custom business logic
+- Design failure states (fail-safe vs fail-dangerous)
+
+**Nightwatch AI does all of this.**
+
+---
+
+## 🚀 Quick Start
+
+```bash
+# Deploy the operator
+kubectl apply -f config/crd/bases/finops.sikander.io_nightwatchscalers.yaml
+kubectl apply -f config/rbac/
+kubectl apply -f config/manager/
+
+# Create a scaler
+kubectl apply -f examples/ai-aware-scaler.yaml
+
+# Watch it work
+kubectl get nightwatchscaler -w
+kubectl logs -n nightwatch-system -l control-plane=controller-manager -f
 ```
 
-## Project Distribution
+---
 
-Following the options to release and provide this solution to the users.
+## 📄 License
 
-### By providing a bundle with all YAML files
+Apache License 2.0
 
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/nightwatch-ai:tag
-```
-
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
-
-2. Using the installer
-
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/nightwatch-ai/<tag or branch>/dist/install.yaml
-```
-
-### By providing a Helm Chart
-
-1. Build the chart using the optional helm plugin
-
-```sh
-kubebuilder edit --plugins=helm/v2-alpha
-```
-
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
-
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
-
-## License
-
-Copyright 2025.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
 

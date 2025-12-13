@@ -38,6 +38,13 @@ type NightwatchScalerSpec struct {
 	// +optional
 	Schedule string `json:"schedule,omitempty"`
 
+	// SleepSchedule defines when to scale down to save costs (FinOps)
+	// Format: "HH:MM-HH:MM" (e.g., "20:00-08:00" means sleep from 8 PM to 8 AM)
+	// During sleep window, deployment scales to 0 and original replica count is saved
+	// +kubebuilder:validation:Pattern=`^([0-1][0-9]|2[0-3]):[0-5][0-9]-([0-1][0-9]|2[0-3]):[0-5][0-9]$`
+	// +optional
+	SleepSchedule string `json:"sleepSchedule,omitempty"`
+
 	// MinReplicas is the minimum number of replicas (default: 0)
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:default=0
@@ -49,6 +56,17 @@ type NightwatchScalerSpec struct {
 	// +kubebuilder:default=10
 	// +optional
 	MaxReplicas *int32 `json:"maxReplicas,omitempty"`
+
+	// QueueDepthThreshold is the maximum acceptable queue depth
+	// If queue depth exceeds this, scale up immediately (overrides sleep mode)
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	QueueDepthThreshold *int32 `json:"queueDepthThreshold,omitempty"`
+
+	// VLLMMetricsURL is the URL to fetch vLLM metrics from
+	// Example: "http://mock-vllm:8000/metrics"
+	// +optional
+	VLLMMetricsURL string `json:"vllmMetricsURL,omitempty"`
 }
 
 // NightwatchScalerStatus defines the observed state of NightwatchScaler.
@@ -69,6 +87,29 @@ type NightwatchScalerStatus struct {
 	// +optional
 	LastCPUUtilization *int32 `json:"lastCPUUtilization,omitempty"`
 
+	// SleepMode indicates if the deployment is currently in sleep mode
+	// +optional
+	SleepMode bool `json:"sleepMode,omitempty"`
+
+	// LastQueueDepth is the last observed vLLM queue depth
+	// +optional
+	LastQueueDepth *int32 `json:"lastQueueDepth,omitempty"`
+
+	// LastKnownQueueDepth is the last successfully fetched queue depth
+	// Used for graceful degradation when metrics service is unavailable
+	// +optional
+	LastKnownQueueDepth *int32 `json:"lastKnownQueueDepth,omitempty"`
+
+	// MetricsFailureCount tracks consecutive metrics fetch failures
+	// Circuit breaker trips at 3 failures
+	// +optional
+	MetricsFailureCount int32 `json:"metricsFailureCount,omitempty"`
+
+	// CircuitBreakerTripped indicates if the circuit breaker is active
+	// When true, operator scales to maxReplicas for safety
+	// +optional
+	CircuitBreakerTripped bool `json:"circuitBreakerTripped,omitempty"`
+
 	// conditions represent the current state of the NightwatchScaler resource.
 	// +listType=map
 	// +listMapKey=type
@@ -81,7 +122,8 @@ type NightwatchScalerStatus struct {
 // +kubebuilder:printcolumn:name="Target",type=string,JSONPath=`.spec.targetDeployment`
 // +kubebuilder:printcolumn:name="Current",type=integer,JSONPath=`.status.currentReplicas`
 // +kubebuilder:printcolumn:name="Desired",type=integer,JSONPath=`.status.desiredReplicas`
-// +kubebuilder:printcolumn:name="CPU%",type=integer,JSONPath=`.status.lastCPUUtilization`
+// +kubebuilder:printcolumn:name="Queue",type=integer,JSONPath=`.status.lastQueueDepth`
+// +kubebuilder:printcolumn:name="Sleep",type=boolean,JSONPath=`.status.sleepMode`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // NightwatchScaler is the Schema for the nightwatchscalers API
